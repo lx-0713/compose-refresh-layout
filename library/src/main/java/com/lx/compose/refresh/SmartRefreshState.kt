@@ -45,10 +45,12 @@ class SmartSwipeRefreshState(
 
     /**
      * 数据边界标识：指示数据流是否已达末尾。
-     * 当为 true 时，底层引擎将释放悬停阻尼约束，并提供沉浸式的无数据终态驻留反馈。
+     *
+     * 当为 `true` 时，底层引擎将释放悬停阻尼约束，并提供沉浸式的无数据终态驻留反馈。
+     * 该状态 **仅应通过 [finishLoadMore] 来变更**，不与下拉刷新逻辑耦合。
      */
     var noMoreData by mutableStateOf(false)
-        private set
+        internal set
 
     // ─────────────────────────────────────────────────────────────────────
     // 【核心：单一 Animatable 控制动画调度】
@@ -81,8 +83,18 @@ class SmartSwipeRefreshState(
     private val _anim = Animatable(0f)
 
     /** 顶部下拉刷新的有限状态机 (FSM) 标识 */
-    var refreshFlag by mutableStateOf(SmartRefreshFlag.IDLE)
-        internal set
+    private var _refreshFlag by mutableStateOf(SmartRefreshFlag.IDLE)
+    var refreshFlag: SmartRefreshFlag
+        get() = _refreshFlag
+        internal set(value) {
+            _refreshFlag = value
+            // 核心自动化设计：一旦触发下拉刷新（无论是手势还是 autoRefresh），
+            // 必然属于重新加载首页数据，此时必须自动重置“没有更多数据”的标记，
+            // 从而使后续上拉加载重新生效。
+            if (value == SmartRefreshFlag.REFRESHING) {
+                noMoreData = false
+            }
+        }
 
     /** 底部上拉加载的有限状态机 (FSM) 标识 */
     var loadMoreFlag by mutableStateOf(SmartRefreshFlag.IDLE)
@@ -158,11 +170,18 @@ class SmartSwipeRefreshState(
 
     /**
      * 触发下拉刷新结束状态。
+     *
+     * 该方法 **不会干预 [noMoreData] 的状态**，
+     * 避免调用方在同一接口回调中先后调用 [finishLoadMore] 与 [finishRefresh] 时，
+     * 后者的默认参数无意间覆盖前者已设置 of 无更多数据标记。
+     *
+     * 如需在下拉刷新完成后重置无更多数据状态，请在业务层显式调用
+     * `finishLoadMore(noMoreData = false)`。
      */
-    suspend fun finishRefresh(success: Boolean = true, noMoreData: Boolean = false) {
-        if (success) {
-            this.noMoreData = noMoreData
-        }
+    /**
+     * 触发下拉刷新结束状态。
+     */
+    private suspend fun finishRefresh() {
         if (refreshFlag == SmartRefreshFlag.IDLE) return
         refreshFlag = SmartRefreshFlag.FINISHING
         animateOffsetTo(0f)
@@ -170,10 +189,33 @@ class SmartSwipeRefreshState(
     }
 
     /**
+     * 统一结束当前活跃的刷新/加载操作。
+     *
+     * 当下拉刷新与上拉加载共用同一接口时，接口回调中无法区分本次是哪种操作触发的，
+     * 此时可统一调用本方法，内部会自动识别当前活跃的操作并处理对应的收尾逻辑：
+     * - 若当前是**下拉刷新**：执行 Header 回弹动画，[noMoreData] 同步更新。
+     * - 若当前是**上拉加载**：根据 [noMoreData] 决定 Footer 的动画归宿。
+     *
+     * **推荐用法：**
+     * ```kotlin
+     * onRefresh = { scope.launch { delay(1000); state.finish() } }
+     * onLoadMore = { scope.launch { delay(1000); state.finish(noMoreData = true) } }
+     * ```
+     *
+     * @param noMoreData 是否已无更多数据（上拉加载/下拉刷新均可传入）。
+     */
+    suspend fun finish(noMoreData: Boolean = false) {
+        // 先处理下拉刷新（如果活跃），再处理上拉加载（如果活跃）；
+        // 两个 flag 互斥，因此始终只有一个分支真正执行动画。
+        finishRefresh()
+        finishLoadMore(noMoreData)
+    }
+
+    /**
      * 触发上拉加载结束状态。
      * 基于解耦渲染架构，实现 Footer 瞬间移除与新数据无缝衔接。
      */
-    suspend fun finishLoadMore(noMoreData: Boolean = false) {
+    private suspend fun finishLoadMore(noMoreData: Boolean = false) {
         this.noMoreData = noMoreData
         if (loadMoreFlag == SmartRefreshFlag.IDLE) return
 

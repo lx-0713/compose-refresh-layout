@@ -73,21 +73,16 @@ fun VerticalDemo() {
         noMoreDataText = "— 我可是有底线的 (垂直) —",
         onRefresh = {
             scope.launch {
-                delay(1000)
+                delay(2000)
                 itemCount = 20
-                state.finishRefresh()
-                state.finishLoadMore(noMoreData = false)
+                state.finish()
             }
         },
         onLoadMore = {
             scope.launch {
-                delay(1000)
-                if (itemCount >= 60) {
-                    state.finishLoadMore(noMoreData = true)
-                } else {
-                    itemCount += 20
-                    state.finishLoadMore(noMoreData = false)
-                }
+                delay(2000)
+                state.finish(noMoreData = itemCount >= 60)
+                if (itemCount < 60) itemCount += 20
             }
         }
     ) {
@@ -122,19 +117,14 @@ fun HorizontalDemo() {
             scope.launch {
                 delay(1000)
                 itemCount = 10
-                state.finishRefresh()
-                state.finishLoadMore(noMoreData = false)
+                state.finish()
             }
         },
         onLoadMore = {
             scope.launch {
                 delay(1000)
-                if (itemCount >= 30) {
-                    state.finishLoadMore(noMoreData = true)
-                } else {
-                    itemCount += 10
-                    state.finishLoadMore(noMoreData = false)
-                }
+                state.finish(noMoreData = itemCount >= 30)
+                if (itemCount < 30) itemCount += 10
             }
         }
     ) {
@@ -168,19 +158,14 @@ fun GridDemo() {
             scope.launch {
                 delay(1000)
                 itemCount = 30
-                state.finishRefresh()
-                state.finishLoadMore(noMoreData = false)
+                state.finish()
             }
         },
         onLoadMore = {
             scope.launch {
                 delay(1000)
-                if (itemCount >= 90) {
-                    state.finishLoadMore(noMoreData = true)
-                } else {
-                    itemCount += 30
-                    state.finishLoadMore(noMoreData = false)
-                }
+                state.finish(noMoreData = itemCount >= 90)
+                if (itemCount < 90) itemCount += 30
             }
         }
     ) {
