@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="compose_srl_text_title">#171E2C</color>
+    <color name="compose_srl_text_tertiary">#9197A3</color>
+</resources>
