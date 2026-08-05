@@ -8,9 +8,15 @@ import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+/** Fling 拉出 Header 时相对手指主动拖拽使用的阻尼倍率，降低轻微回滑触发刷新的概率。 */
+private const val HEADER_FLING_STICKINESS_RATIO = 0.3f
+
+/** 单次 Fling 最多允许前 5 帧拉出 Header，避免后续低速惯性造成 Header 缓慢爬出。 */
+private const val MAX_HEADER_FLING_CONSUME_FRAMES = 5
+
 /**
  * 核心手势拦截与路由分发器。
- * 
+ *
  * 该连接器实现 [NestedScrollConnection] 接口，负责在滚动事件流的 Pre 与 Post 阶段
  * 拦截手势能量，并将其重定向为边界外的物理阻尼平移效果。
  *
@@ -28,6 +34,9 @@ internal class SmartRefreshNestedScrollConnection(
     private val onRefresh: () -> Unit,
     private val onLoadMore: () -> Unit
 ) : NestedScrollConnection {
+
+    /** 单次 Fling 中已用于拉出 Header 的帧数，在 Fling 开始和结束时复位。 */
+    private var headerFlingConsumedFrames = 0
 
     // --- 向量转换辅助扩展函数 ---
     // 使得核心计算逻辑不用去繁琐地判断当前是处于 X 轴还是 Y 轴的滚动
@@ -102,14 +111,28 @@ internal class SmartRefreshNestedScrollConnection(
         return when {
             // 列表到达了顶部，用户还在使劲往下拉（开始拉出 Header）
             availableAxis > 0 && state.enableRefresh && state.headerBound > 0f && state.refreshFlag != SmartRefreshFlag.FINISHING -> {
+                if (source == NestedScrollSource.Fling && headerFlingConsumedFrames >= MAX_HEADER_FLING_CONSUME_FRAMES) {
+                    return Offset.Zero
+                }
+
                 // 计算当前容许的最大形变边界。Fling 代表系统惯性滚动。
                 val limit = if (source == NestedScrollSource.Fling) state.headerBound else containerSize / 2f
-                val delta = (availableAxis * state.stickinessLevel).coerceAtMost(limit - state.indicatorOffset)
-                
+                // Fling 只消费前几帧，保留短促的惯性反馈，避免 Header 随后续帧缓慢爬出。
+                val stickiness = if (source == NestedScrollSource.Fling) {
+                    state.stickinessLevel * HEADER_FLING_STICKINESS_RATIO
+                } else {
+                    state.stickinessLevel
+                }
+                val delta = (availableAxis * stickiness).coerceAtMost(limit - state.indicatorOffset)
+
                 state.indicatorOffset += delta
 
                 if (state.refreshFlag == SmartRefreshFlag.IDLE && state.indicatorOffset > 0) {
                     state.refreshFlag = SmartRefreshFlag.PULLING
+                }
+
+                if (source == NestedScrollSource.Fling) {
+                    headerFlingConsumedFrames++
                 }
 
                 // 极端情况防御：如果是系统强劲的惯性滚到了顶部并且直接飞出阈值，直接触发刷新回调
@@ -156,6 +179,7 @@ internal class SmartRefreshNestedScrollConnection(
      * 主要目的是：判断当前越界程度是否满足刷新要求。如果是，拦截该惯性并在悬停位执行动画，同时消费该手势的动能以避免内部列表失控漂移。
      */
     override suspend fun onPreFling(available: Velocity): Velocity {
+        headerFlingConsumedFrames = 0
         val offset = state.indicatorOffset
         val headerOver = state.headerBound > 0f && offset >= state.headerBound
         val footerOver = state.footerBound > 0f && offset <= -state.footerBound
@@ -221,7 +245,7 @@ internal class SmartRefreshNestedScrollConnection(
             state.refreshFlag = SmartRefreshFlag.IDLE
             scope.launch { state.animateOffsetTo(0f) }
         }
-        
+
         // 处理底部的回弹逻辑
         if (state.loadMoreFlag != SmartRefreshFlag.REFRESHING && state.indicatorOffset < 0f) {
             if (state.noMoreData) {
@@ -237,6 +261,7 @@ internal class SmartRefreshNestedScrollConnection(
                 scope.launch { state.animateOffsetTo(0f) }
             }
         }
+        headerFlingConsumedFrames = 0
         return Velocity.Zero
     }
 }

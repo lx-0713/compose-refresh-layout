@@ -32,7 +32,7 @@
 
 ```kotlin
 dependencies {
-    implementation("io.github.lx-0713:compose-smart-refresh:1.0.0")
+    implementation("io.github.lx-0713:compose-smart-refresh:1.0.2")
 }
 ```
 

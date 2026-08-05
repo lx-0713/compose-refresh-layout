@@ -32,7 +32,7 @@ android {
 
 dependencies {
     implementation(project(":library"))
-//    implementation("io.github.lx-0713:compose-smart-refresh:1.0.0")
+//    implementation("io.github.lx-0713:compose-smart-refresh:1.0.2")
 
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
